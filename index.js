@@ -13,37 +13,32 @@ const port = process.env.PORT || 4000;
 app.use(express.json());
 app.use(cors());
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-}).then(() => {
-  console.log('Connected to MongoDB');
-}).catch(err => {
-  console.error('Failed to connect to MongoDB:', err);
-  process.exit(1); // Exit the process with failure
-});
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log('Connected to MongoDB');
+  })
+  .catch(err => {
+    console.error('Failed to connect to MongoDB:', err);
+    process.exit(1);
+  });
 
-// Cloudinary Configuration
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Image Storage Engine
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'uploads',
-    format: async (req, file) => 'png', // Supports promises as well
+    format: async (req, file) => 'png',
     public_id: (req, file) => Date.now().toString()
   },
 });
 
 const upload = multer({ storage: storage });
 
-// Creating upload endpoint for images
 app.post("/upload", upload.single('product'), (req, res) => {
   res.json({
     success: 1,
@@ -51,7 +46,6 @@ app.post("/upload", upload.single('product'), (req, res) => {
   });
 });
 
-// Schema for Creating Products
 const Product = mongoose.model("Product", {
   id: {
     type: Number,
@@ -87,7 +81,6 @@ const Product = mongoose.model("Product", {
   },
 });
 
-// Add Product API
 app.post('/addproduct', async (req, res) => {
   let products = await Product.find({});
   let id = (products.length > 0) ? products.slice(-1)[0].id + 1 : 1;
@@ -103,19 +96,16 @@ app.post('/addproduct', async (req, res) => {
   res.json({ success: true, name: req.body.name });
 });
 
-// Remove Product API
 app.post('/removeproduct', async (req, res) => {
   await Product.findOneAndDelete({ id: req.body.id });
   res.json({ success: true, name: req.body.name });
 });
 
-// Get All Products API
 app.get('/allproducts', async (req, res) => {
   let products = await Product.find({});
   res.send(products);
 });
 
-// User Schema
 const Users = mongoose.model('Users', {
   name: { type: String },
   email: { type: String, unique: true },
@@ -124,7 +114,6 @@ const Users = mongoose.model('Users', {
   date: { type: Date, default: Date.now }
 });
 
-// User Registration API
 app.post('/signup', async (req, res) => {
   let check = await Users.findOne({ email: req.body.email });
   if (check) {
@@ -146,7 +135,6 @@ app.post('/signup', async (req, res) => {
   res.json({ success: true, token });
 });
 
-// User Login API
 app.post('/login', async (req, res) => {
   let user = await Users.findOne({ email: req.body.email });
   if (user) {
@@ -163,21 +151,37 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// New Collection API
 app.get('/newcollection', async (req, res) => {
-  let products = await Product.find({});
-  let newcollection = products.slice(1).slice(-8);
-  res.send(newcollection);
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const products = await Product.find({}).skip(skip).limit(limit).lean();
+    const totalProducts = await Product.countDocuments({});
+
+    res.json({
+      success: true,
+      totalPages: Math.ceil(totalProducts / limit),
+      currentPage: page,
+      products: products,
+    });
+  } catch (error) {
+    console.error('Error fetching new collection:', error);
+    res.status(500).json({ success: false, errors: error.message });
+  }
 });
 
-// Popular in Women API
 app.get('/popularinwomen', async (req, res) => {
-  let products = await Product.find({ category: "women" });
-  let popularinwomen = products.slice(0, 4);
-  res.send(popularinwomen);
+  try {
+    const products = await Product.find({ category: "women" }).limit(4).lean();
+    res.send(products);
+  } catch (error) {
+    console.error('Error fetching popular in women:', error);
+    res.status(500).json({ success: false, errors: error.message });
+  }
 });
 
-// Middleware to Fetch User
 const fetchUser = async (req, res, next) => {
   const token = req.header('auth-token');
   if (!token) {
@@ -192,7 +196,6 @@ const fetchUser = async (req, res, next) => {
   }
 };
 
-// Add to Cart API
 app.post('/addtocart', fetchUser, async (req, res) => {
   let userData = await Users.findOne({ _id: req.user.id });
   userData.cartData[req.body.itemId] += 1;
@@ -200,7 +203,6 @@ app.post('/addtocart', fetchUser, async (req, res) => {
   res.send("Added");
 });
 
-// Remove from Cart API
 app.post('/removefromcart', fetchUser, async (req, res) => {
   let userData = await Users.findOne({ _id: req.user.id });
   if (userData.cartData[req.body.itemId] > 0) {
@@ -210,13 +212,11 @@ app.post('/removefromcart', fetchUser, async (req, res) => {
   res.send("Removed");
 });
 
-// Get Cart Data API
 app.post('/getcart', fetchUser, async (req, res) => {
   let userData = await Users.findOne({ _id: req.user.id });
   res.json(userData.cartData);
 });
 
-// Order Schema
 const Order = mongoose.model('Order', {
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -246,7 +246,6 @@ const Order = mongoose.model('Order', {
   status: { type: String, default: "Processing" }
 });
 
-// Place Order API
 app.post('/placeorder', fetchUser, async (req, res) => {
   const { products, totalAmount, deliveryInfo } = req.body;
   const newOrder = new Order({
@@ -264,7 +263,6 @@ app.post('/placeorder', fetchUser, async (req, res) => {
   }
 });
 
-// Get My Orders API
 app.get('/myorders', fetchUser, async (req, res) => {
   try {
     const orders = await Order.find({ userId: req.user.id }).sort({ date: -1 });
@@ -275,10 +273,9 @@ app.get('/myorders', fetchUser, async (req, res) => {
   }
 });
 
-// Get All Orders API
 app.get('/api/orders', async (req, res) => {
   try {
-    const orders = await Order.find().populate('userId', 'name email');
+    const orders = await Order.find().populate('userId', 'name email').lean();
     res.json({ success: true, orders });
   } catch (error) {
     console.error('Error fetching orders:', error);
@@ -286,11 +283,10 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
-// Update Order Status API
 app.post('/updateOrderStatus', async (req, res) => {
   const { orderId, newStatus } = req.body;
   try {
-    const order = await Order.findByIdAndUpdate(orderId, { status: newStatus }, { new: true });
+    const order = await Order.findByIdAndUpdate(orderId, { status: newStatus }, { new: true }).lean();
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
