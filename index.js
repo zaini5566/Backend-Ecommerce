@@ -13,14 +13,15 @@ const port = process.env.PORT || 4000;
 app.use(express.json());
 app.use(cors());
 
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log('Connected to MongoDB');
-  })
-  .catch(err => {
-    console.error('Failed to connect to MongoDB:', err);
-    process.exit(1);
-  });
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => {
+  console.log('Connected to MongoDB');
+}).catch(err => {
+  console.error('Failed to connect to MongoDB:', err);
+  process.exit(1); // Exit the process with failure
+});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -38,6 +39,11 @@ const storage = new CloudinaryStorage({
 });
 
 const upload = multer({ storage: storage });
+
+// Root route
+app.get("/", (req, res) => {
+  res.send("Hello, this is the backend for the e-commerce application.");
+});
 
 app.post("/upload", upload.single('product'), (req, res) => {
   res.json({
@@ -82,28 +88,43 @@ const Product = mongoose.model("Product", {
 });
 
 app.post('/addproduct', async (req, res) => {
-  let products = await Product.find({});
-  let id = (products.length > 0) ? products.slice(-1)[0].id + 1 : 1;
-  const product = new Product({
-    id: id,
-    name: req.body.name,
-    image: req.body.image,
-    category: req.body.category,
-    new_price: req.body.new_price,
-    old_price: req.body.old_price
-  });
-  await product.save();
-  res.json({ success: true, name: req.body.name });
+  try {
+    let products = await Product.find({});
+    let id = (products.length > 0) ? products.slice(-1)[0].id + 1 : 1;
+    const product = new Product({
+      id: id,
+      name: req.body.name,
+      image: req.body.image,
+      category: req.body.category,
+      new_price: req.body.new_price,
+      old_price: req.body.old_price
+    });
+    await product.save();
+    res.json({ success: true, name: req.body.name });
+  } catch (error) {
+    console.error('Error adding product:', error);
+    res.status(500).json({ success: false, errors: error.message });
+  }
 });
 
 app.post('/removeproduct', async (req, res) => {
-  await Product.findOneAndDelete({ id: req.body.id });
-  res.json({ success: true, name: req.body.name });
+  try {
+    await Product.findOneAndDelete({ id: req.body.id });
+    res.json({ success: true, name: req.body.name });
+  } catch (error) {
+    console.error('Error removing product:', error);
+    res.status(500).json({ success: false, errors: error.message });
+  }
 });
 
 app.get('/allproducts', async (req, res) => {
-  let products = await Product.find({});
-  res.send(products);
+  try {
+    let products = await Product.find({});
+    res.send(products);
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ success: false, errors: error.message });
+  }
 });
 
 const Users = mongoose.model('Users', {
@@ -115,39 +136,49 @@ const Users = mongoose.model('Users', {
 });
 
 app.post('/signup', async (req, res) => {
-  let check = await Users.findOne({ email: req.body.email });
-  if (check) {
-    return res.status(400).json({ success: false, errors: "Existing user found with email address" });
+  try {
+    let check = await Users.findOne({ email: req.body.email });
+    if (check) {
+      return res.status(400).json({ success: false, errors: "Existing user found with email address" });
+    }
+    let cart = {};
+    for (let i = 0; i < 300; i++) {
+      cart[i] = 0;
+    }
+    const user = new Users({
+      name: req.body.username,
+      email: req.body.email,
+      password: req.body.password,
+      cartData: cart,
+    });
+    await user.save();
+    const data = { user: { id: user.id } };
+    const token = jwt.sign(data, 'secret_ecom');
+    res.json({ success: true, token });
+  } catch (error) {
+    console.error('Error signing up user:', error);
+    res.status(500).json({ success: false, errors: error.message });
   }
-  let cart = {};
-  for (let i = 0; i < 300; i++) {
-    cart[i] = 0;
-  }
-  const user = new Users({
-    name: req.body.username,
-    email: req.body.email,
-    password: req.body.password,
-    cartData: cart,
-  });
-  await user.save();
-  const data = { user: { id: user.id } };
-  const token = jwt.sign(data, 'secret_ecom');
-  res.json({ success: true, token });
 });
 
 app.post('/login', async (req, res) => {
-  let user = await Users.findOne({ email: req.body.email });
-  if (user) {
-    const passCompare = req.body.password === user.password;
-    if (passCompare) {
-      const data = { user: { id: user.id } };
-      const token = jwt.sign(data, 'secret_ecom');
-      res.json({ success: true, token });
+  try {
+    let user = await Users.findOne({ email: req.body.email });
+    if (user) {
+      const passCompare = req.body.password === user.password;
+      if (passCompare) {
+        const data = { user: { id: user.id } };
+        const token = jwt.sign(data, 'secret_ecom');
+        res.json({ success: true, token });
+      } else {
+        res.json({ success: false, errors: "Wrong Password" });
+      }
     } else {
-      res.json({ success: false, errors: "Wrong Password" });
+      res.json({ success: false, errors: "Wrong Email ID" });
     }
-  } else {
-    res.json({ success: false, errors: "Wrong Email ID" });
+  } catch (error) {
+    console.error('Error logging in user:', error);
+    res.status(500).json({ success: false, errors: error.message });
   }
 });
 
@@ -197,24 +228,39 @@ const fetchUser = async (req, res, next) => {
 };
 
 app.post('/addtocart', fetchUser, async (req, res) => {
-  let userData = await Users.findOne({ _id: req.user.id });
-  userData.cartData[req.body.itemId] += 1;
-  await Users.findOneAndUpdate({ _id: req.user.id }, { cartData: userData.cartData });
-  res.send("Added");
+  try {
+    let userData = await Users.findOne({ _id: req.user.id });
+    userData.cartData[req.body.itemId] += 1;
+    await Users.findOneAndUpdate({ _id: req.user.id }, { cartData: userData.cartData });
+    res.send("Added");
+  } catch (error) {
+    console.error('Error adding to cart:', error);
+    res.status(500).json({ success: false, errors: error.message });
+  }
 });
 
 app.post('/removefromcart', fetchUser, async (req, res) => {
-  let userData = await Users.findOne({ _id: req.user.id });
-  if (userData.cartData[req.body.itemId] > 0) {
-    userData.cartData[req.body.itemId] -= 1;
+  try {
+    let userData = await Users.findOne({ _id: req.user.id });
+    if (userData.cartData[req.body.itemId] > 0) {
+      userData.cartData[req.body.itemId] -= 1;
+    }
+    await Users.findOneAndUpdate({ _id: req.user.id }, { cartData: userData.cartData });
+    res.send("Removed");
+  } catch (error) {
+    console.error('Error removing from cart:', error);
+    res.status(500).json({ success: false, errors: error.message });
   }
-  await Users.findOneAndUpdate({ _id: req.user.id }, { cartData: userData.cartData });
-  res.send("Removed");
 });
 
 app.post('/getcart', fetchUser, async (req, res) => {
-  let userData = await Users.findOne({ _id: req.user.id });
-  res.json(userData.cartData);
+  try {
+    let userData = await Users.findOne({ _id: req.user.id });
+    res.json(userData.cartData);
+  } catch (error) {
+    console.error('Error fetching cart:', error);
+    res.status(500).json({ success: false, errors: error.message });
+  }
 });
 
 const Order = mongoose.model('Order', {
@@ -247,14 +293,14 @@ const Order = mongoose.model('Order', {
 });
 
 app.post('/placeorder', fetchUser, async (req, res) => {
-  const { products, totalAmount, deliveryInfo } = req.body;
-  const newOrder = new Order({
-    userId: req.user.id,
-    products,
-    deliveryInfo,
-    totalAmount
-  });
   try {
+    const { products, totalAmount, deliveryInfo } = req.body;
+    const newOrder = new Order({
+      userId: req.user.id,
+      products,
+      deliveryInfo,
+      totalAmount
+    });
     await newOrder.save();
     res.json({ success: true, order: newOrder });
   } catch (error) {
@@ -275,7 +321,7 @@ app.get('/myorders', fetchUser, async (req, res) => {
 
 app.get('/api/orders', async (req, res) => {
   try {
-    const orders = await Order.find().populate('userId', 'name email').lean();
+    const orders = await Order.find().populate('userId', 'name email');
     res.json({ success: true, orders });
   } catch (error) {
     console.error('Error fetching orders:', error);
@@ -284,9 +330,9 @@ app.get('/api/orders', async (req, res) => {
 });
 
 app.post('/updateOrderStatus', async (req, res) => {
-  const { orderId, newStatus } = req.body;
   try {
-    const order = await Order.findByIdAndUpdate(orderId, { status: newStatus }, { new: true }).lean();
+    const { orderId, newStatus } = req.body;
+    const order = await Order.findByIdAndUpdate(orderId, { status: newStatus }, { new: true });
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
