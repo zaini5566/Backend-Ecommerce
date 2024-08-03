@@ -11,7 +11,7 @@ const { error } = require("console");
 const { truncate } = require("fs");
 require('dotenv').config();
 
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 4000;
 
 
 app.use(express.json());
