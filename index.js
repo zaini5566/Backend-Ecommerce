@@ -1,12 +1,13 @@
 const express = require("express");
-const app = express();
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
-const path = require("path");
 const cors = require("cors");
+const cloudinary = require("cloudinary").v2;
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 require('dotenv').config();
 
+const app = express();
 const port = process.env.PORT || 4000;
 
 app.use(express.json());
@@ -19,31 +20,34 @@ mongoose.connect(process.env.MONGODB_URI, {
 }).then(() => {
   console.log('Connected to MongoDB');
 }).catch(err => {
-  console.error('Failed to connect to MongoDB', err);
+  console.error('Failed to connect to MongoDB:', err);
   process.exit(1); // Exit the process with failure
 });
 
-// API Creation
-app.get("/", (req, res) => {
-  res.send("Express app is running");
+// Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
 // Image Storage Engine
-const storage = multer.diskStorage({
-  destination: './upload/images',
-  filename: (req, file, cb) => {
-    cb(null, `${file.fieldname}_${Date.now()}${path.extname(file.originalname)}`);
-  }
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'uploads',
+    format: async (req, file) => 'png', // Supports promises as well
+    public_id: (req, file) => Date.now().toString()
+  },
 });
+
 const upload = multer({ storage: storage });
 
 // Creating upload endpoint for images
-app.use('/images', express.static('upload/images'));
-
 app.post("/upload", upload.single('product'), (req, res) => {
   res.json({
     success: 1,
-    image_url: `http://localhost:${port}/images/${req.file.filename}`
+    image_url: req.file.path
   });
 });
 
