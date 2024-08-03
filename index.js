@@ -9,16 +9,19 @@ const cors = require("cors");
 const { type } = require("os");
 const { error } = require("console");
 const { truncate } = require("fs");
+require('dotenv').config();
 
-
-const port = 5000;
+const port = process.env.PORT || 5000;
 
 
 app.use(express.json());
 app.use(cors());
 
 //Data Base Connectin wiht Mongodb
-mongoose.connect("mongodb+srv://zaini92:zain5566g@cluster0.zq6iux9.mongodb.net/e-commerce");
+mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
 //API Creation 
 
 app.get("/", (req,res)=>{
